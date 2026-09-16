@@ -1,0 +1,998 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DELETED
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum OrganizationMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+enum TeamMemberRole {
+  LEAD
+  MEMBER
+}
+
+enum DocumentStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum DocumentProcessingStatus {
+  PENDING
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DocumentVersionStatus {
+  PROCESSING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum DocumentPermissionType {
+  READ
+  WRITE
+  DELETE
+  SHARE
+}
+
+enum ConversationStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum MessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum MessageStatus {
+  PENDING
+  STREAMING
+  COMPLETED
+  FAILED
+}
+
+enum AIUsageOperation {
+  CHAT
+  EMBEDDING
+  RERANK
+  OCR
+  OTHER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+  INCOMPLETE
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+enum ProcessingJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum IntegrationProvider {
+  GOOGLE_DRIVE
+  ONEDRIVE
+  SHAREPOINT
+  SLACK
+  NOTION
+  WEBSITE
+  WHATSAPP
+  OTHER
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+
+  ORGANIZATION_CREATED
+  ORGANIZATION_UPDATED
+  ORGANIZATION_DELETED
+
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+
+  TEAM_CREATED
+  TEAM_UPDATED
+  TEAM_DELETED
+
+  DOCUMENT_UPLOADED
+  DOCUMENT_UPDATED
+  DOCUMENT_RENAMED
+  DOCUMENT_DELETED
+  DOCUMENT_ARCHIVED
+  DOCUMENT_RESTORED
+
+  DOCUMENT_PERMISSION_CHANGED
+
+  CONVERSATION_CREATED
+  CONVERSATION_DELETED
+
+  API_KEY_CREATED
+  API_KEY_REVOKED
+
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_UPDATED
+  SUBSCRIPTION_CANCELED
+
+  INTEGRATION_CONNECTED
+  INTEGRATION_DISCONNECTED
+
+  OTHER
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id                String     @id @db.Uuid
+  email             String     @unique
+  name              String?
+  avatarUrl         String?
+  status            UserStatus @default(ACTIVE)
+
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  deletedAt         DateTime?
+
+  // Organization relationships
+  memberships       OrganizationMember[]
+  ownedOrganizations Organization[] @relation("OrganizationOwner")
+
+  // Content
+  uploadedDocuments Document[]
+  uploadedVersions  DocumentVersion[]
+
+  // Conversations
+  conversations     Conversation[]
+
+  // Teams
+  teamMemberships   TeamMember[]
+
+  // Invitations
+  createdInvitations Invitation[] @relation("InvitationCreator")
+
+  // Permissions
+  userPermissions   DocumentPermission[]
+
+  // API keys
+  createdApiKeys    ApiKey[] @relation("ApiKeyCreator")
+
+  // Audit
+  auditLogs         AuditLog[]
+
+  // AI usage
+  aiUsages          AIUsage[]
+
+  @@index([status])
+  @@index([email])
+  @@map("users")
+}
+
+// ============================================================
+// ORGANIZATION
+// ============================================================
+
+model Organization {
+  id          String             @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String             @unique
+  logoUrl     String?
+
+  status      OrganizationStatus @default(ACTIVE)
+
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime?
+
+  // Owner
+  ownerId     String             @db.Uuid
+  owner       User               @relation("OrganizationOwner", fields: [ownerId], references: [id] )
+
+  // Members
+  members     OrganizationMember[]
+
+  // Teams
+  teams       Team[]
+
+  // Documents
+  documents   Document[]
+
+  // Folders
+  folders     Folder[]
+
+  // Conversations
+  conversations Conversation[]
+
+  // Invitations
+  invitations Invitation[]
+
+  // Billing
+  subscription Subscription?
+
+  // API
+  apiKeys     ApiKey[]
+
+  // AI
+  aiUsages    AIUsage[]
+
+  // Audit
+  auditLogs   AuditLog[]
+
+  // Integrations
+  integrations Integration[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@map("organizations")
+}
+
+// ============================================================
+// ORGANIZATION MEMBERS
+// ============================================================
+
+model OrganizationMember {
+  id              String             @id @default(uuid()) @db.Uuid
+
+  organizationId  String             @db.Uuid
+  userId          String             @db.Uuid
+
+  role            OrganizationMemberRole @default(MEMBER)
+  status          MembershipStatus   @default(ACTIVE)
+
+  joinedAt        DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  removedAt       DateTime?
+
+  organization    Organization       @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  user            User               @relation( fields: [userId], references: [id], onDelete: Cascade )
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([organizationId, status])
+  @@map("organization_members")
+}
+
+// ============================================================
+// TEAMS
+// ============================================================
+
+model Team {
+  id              String       @id @default(uuid()) @db.Uuid
+
+  organizationId  String       @db.Uuid
+
+  name            String
+  description     String?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  organization    Organization @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  members         TeamMember[]
+
+  permissions     DocumentPermission[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("teams")
+}
+
+// ============================================================
+// TEAM MEMBERS
+// ============================================================
+
+model TeamMember {
+  id          String         @id @default(uuid()) @db.Uuid
+
+  teamId      String         @db.Uuid
+  userId      String         @db.Uuid
+
+  role        TeamMemberRole @default(MEMBER)
+
+  createdAt   DateTime       @default(now())
+
+  team        Team           @relation( fields: [teamId], references: [id], onDelete: Cascade )
+
+  user        User           @relation( fields: [userId], references: [id], onDelete: Cascade )
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// ============================================================
+// FOLDERS
+// ============================================================
+
+model Folder {
+  id              String       @id @default(uuid()) @db.Uuid
+
+  organizationId  String       @db.Uuid
+  parentFolderId  String?      @db.Uuid
+
+  name            String
+
+  createdById     String       @db.Uuid
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  organization    Organization @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  parent          Folder?      @relation("FolderHierarchy", fields: [parentFolderId], references: [id] )
+
+  children        Folder[]     @relation("FolderHierarchy")
+
+  documents       DocumentFolder[]
+
+  @@index([organizationId])
+  @@index([parentFolderId])
+  @@map("folders")
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+
+model Document {
+  id                    String                  @id @default(uuid()) @db.Uuid
+
+  organizationId        String                  @db.Uuid
+  uploadedById          String                  @db.Uuid
+
+  name                  String
+  description           String?
+
+  mimeType              String?
+  status                DocumentStatus          @default(ACTIVE)
+  processingStatus      DocumentProcessingStatus @default(PENDING)
+
+  currentVersionId      String?                 @unique @db.Uuid
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  deletedAt             DateTime?
+
+  organization          Organization            @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  uploadedBy            User                    @relation( fields: [uploadedById], references: [id] )
+
+  versions              DocumentVersion[]
+
+  currentVersion        DocumentVersion?       @relation("CurrentDocumentVersion", fields: [currentVersionId], references: [id] )
+
+  folders               DocumentFolder[]
+
+  permissions            DocumentPermission[]
+
+  processingJobs         DocumentProcessingJob[]
+
+  @@index([organizationId])
+  @@index([uploadedById])
+  @@index([organizationId, status])
+  @@index([organizationId, processingStatus])
+  @@map("documents")
+}
+
+// ============================================================
+// DOCUMENT VERSIONS
+// ============================================================
+
+model DocumentVersion {
+  id                    String                  @id @default(uuid()) @db.Uuid
+
+  documentId            String                  @db.Uuid
+
+  versionNumber         Int
+
+  originalFilename      String
+  storagePath           String
+
+  mimeType              String?
+  sizeBytes             BigInt?
+
+  checksum              String?
+
+  status                DocumentVersionStatus   @default(PROCESSING)
+
+  uploadedById          String                  @db.Uuid
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  document              Document                @relation( fields: [documentId], references: [id], onDelete: Cascade )
+
+  currentForDocument    Document?               @relation("CurrentDocumentVersion" )
+
+  uploadedBy            User                    @relation( fields: [uploadedById], references: [id] )
+
+  chunks                DocumentChunk[]
+
+  processingJobs        DocumentProcessingJob[]
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@index([status])
+  @@index([checksum])
+  @@map("document_versions")
+}
+
+// ============================================================
+// DOCUMENT ↔ FOLDER
+// ============================================================
+
+model DocumentFolder {
+  documentId  String   @db.Uuid
+  folderId    String   @db.Uuid
+
+  createdAt   DateTime @default(now())
+
+  document    Document @relation( fields: [documentId], references: [id], onDelete: Cascade )
+
+  folder      Folder   @relation( fields: [folderId], references: [id], onDelete: Cascade )
+
+  @@id([documentId, folderId])
+  @@index([folderId])
+  @@map("document_folders")
+}
+
+// ============================================================
+// DOCUMENT PERMISSIONS
+// ============================================================
+
+model DocumentPermission {
+  id              String                    @id @default(uuid()) @db.Uuid
+
+  documentId      String                    @db.Uuid
+
+  userId          String?                   @db.Uuid
+  teamId          String?                   @db.Uuid
+
+  permission      DocumentPermissionType
+
+  createdAt       DateTime                  @default(now())
+
+  document        Document                  @relation( fields: [documentId], references: [id], onDelete: Cascade )
+
+  user            User?                     @relation( fields: [userId], references: [id], onDelete: Cascade )
+
+  team            Team?                     @relation( fields: [teamId], references: [id], onDelete: Cascade )
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([teamId])
+  @@map("document_permissions")
+}
+
+// ============================================================
+// DOCUMENT CHUNKS
+// ============================================================
+
+model DocumentChunk {
+  id                    String   @id @default(uuid()) @db.Uuid
+
+  documentVersionId     String   @db.Uuid
+
+  chunkIndex            Int
+
+  content               String
+
+  pageNumber            Int?
+
+  tokenCount            Int?
+
+  metadata              Json?
+
+  // pgvector
+  //
+  // Prisma doesn't natively model pgvector as a normal scalar.
+  // We'll add the actual vector column through SQL migration.
+  //
+  // embedding vector(...)
+  //
+
+  embeddingModel        String?
+  embeddingVersion      String?
+
+  createdAt             DateTime @default(now())
+
+  documentVersion       DocumentVersion @relation( fields: [documentVersionId], references: [id], onDelete: Cascade )
+
+  citations             MessageCitation[]
+
+  @@unique([documentVersionId, chunkIndex])
+  @@index([documentVersionId])
+  @@index([pageNumber])
+  @@map("document_chunks")
+}
+
+// ============================================================
+// DOCUMENT PROCESSING JOBS
+// ============================================================
+
+model DocumentProcessingJob {
+  id                    String                @id @default(uuid()) @db.Uuid
+
+  documentId            String                @db.Uuid
+  documentVersionId     String                @db.Uuid
+
+  status                ProcessingJobStatus   @default(PENDING)
+
+  attempts              Int                   @default(0)
+
+  startedAt             DateTime?
+  completedAt           DateTime?
+
+  errorMessage          String?
+
+  metadata              Json?
+
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  document              Document              @relation( fields: [documentId], references: [id], onDelete: Cascade )
+
+  documentVersion       DocumentVersion       @relation( fields: [documentVersionId], references: [id], onDelete: Cascade )
+
+  @@index([documentId])
+  @@index([documentVersionId])
+  @@index([status])
+  @@map("document_processing_jobs")
+}
+
+// ============================================================
+// CONVERSATIONS
+// ============================================================
+
+model Conversation {
+  id              String             @id @default(uuid()) @db.Uuid
+
+  organizationId  String             @db.Uuid
+  userId          String             @db.Uuid
+
+  title           String?
+
+  status          ConversationStatus @default(ACTIVE)
+
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+
+  organization    Organization       @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  user            User               @relation( fields: [userId], references: [id] )
+
+  messages        Message[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([organizationId, userId])
+  @@map("conversations")
+}
+
+// ============================================================
+// MESSAGES
+// ============================================================
+
+model Message {
+  id                    String        @id @default(uuid()) @db.Uuid
+
+  conversationId        String        @db.Uuid
+
+  role                  MessageRole
+  content               String
+
+  status                MessageStatus @default(COMPLETED)
+
+  model                 String?
+
+  inputTokens           Int?
+  outputTokens          Int?
+
+  metadata              Json?
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  conversation          Conversation  @relation( fields: [conversationId], references: [id], onDelete: Cascade )
+
+  citations             MessageCitation[]
+
+  aiUsage               AIUsage[]
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// ============================================================
+// MESSAGE CITATIONS
+// ============================================================
+
+model MessageCitation {
+  id                    String        @id @default(uuid()) @db.Uuid
+
+  messageId             String        @db.Uuid
+  documentChunkId       String        @db.Uuid
+
+  pageNumber            Int?
+
+  relevanceScore        Float?
+
+  citationOrder         Int?
+
+  metadata              Json?
+
+  createdAt             DateTime      @default(now())
+
+  message               Message       @relation( fields: [messageId], references: [id], onDelete: Cascade )
+
+  documentChunk         DocumentChunk @relation( fields: [documentChunkId], references: [id] )
+
+  @@index([messageId])
+  @@index([documentChunkId])
+  @@map("message_citations")
+}
+
+// ============================================================
+// AI USAGE
+// ============================================================
+
+model AIUsage {
+  id                    String            @id @default(uuid()) @db.Uuid
+
+  organizationId        String            @db.Uuid
+  userId                String?           @db.Uuid
+  messageId             String?           @db.Uuid
+
+  operation             AIUsageOperation
+
+  provider              String?
+  model                 String?
+
+  inputTokens           Int?
+  outputTokens          Int?
+
+  estimatedCost         Decimal?          @db.Decimal(18, 8)
+
+  metadata              Json?
+
+  createdAt             DateTime          @default(now())
+
+  organization          Organization      @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  user                  User?             @relation( fields: [userId], references: [id] )
+
+  message               Message?          @relation( fields: [messageId], references: [id] )
+
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@index([messageId])
+  @@map("ai_usage")
+}
+
+// ============================================================
+// PLANS
+// ============================================================
+
+model Plan {
+  id                    String          @id @default(uuid()) @db.Uuid
+
+  name                  String
+  slug                  String          @unique
+
+  description           String?
+
+  price                 Decimal         @db.Decimal(12, 2)
+
+  currency              String          @default("INR")
+
+  billingInterval       BillingInterval
+
+  maxUsers              Int?
+  maxDocuments          Int?
+  maxStorageBytes       BigInt?
+  maxAIQueries          Int?
+
+  features              Json?
+
+  active                Boolean         @default(true)
+
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  subscriptions         Subscription[]
+
+  @@index([active])
+  @@map("plans")
+}
+
+// ============================================================
+// SUBSCRIPTIONS
+// ============================================================
+
+model Subscription {
+  id                         String             @id @default(uuid()) @db.Uuid
+
+  organizationId             String             @unique @db.Uuid
+
+  planId                     String             @db.Uuid
+
+  provider                   String?
+  providerCustomerId         String?
+  providerSubscriptionId     String?
+
+  status                     SubscriptionStatus @default(TRIALING)
+
+  currentPeriodStart         DateTime?
+  currentPeriodEnd           DateTime?
+
+  cancelAtPeriodEnd          Boolean            @default(false)
+  canceledAt                 DateTime?
+
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+
+  organization               Organization       @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  plan                       Plan               @relation( fields: [planId], references: [id] )
+
+  payments                   Payment[]
+
+  @@index([status])
+  @@index([providerSubscriptionId])
+  @@map("subscriptions")
+}
+
+// ============================================================
+// PAYMENTS
+// ============================================================
+
+model Payment {
+  id                    String        @id @default(uuid()) @db.Uuid
+
+  subscriptionId        String        @db.Uuid
+
+  provider              String?
+  providerPaymentId     String?
+
+  amount                Decimal       @db.Decimal(12, 2)
+  currency              String        @default("INR")
+
+  status                PaymentStatus @default(PENDING)
+
+  paidAt                DateTime?
+
+  metadata              Json?
+
+  createdAt             DateTime      @default(now())
+
+  subscription          Subscription  @relation( fields: [subscriptionId], references: [id], onDelete: Cascade )
+
+  @@index([subscriptionId])
+  @@index([providerPaymentId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ============================================================
+// INVITATIONS
+// ============================================================
+
+model Invitation {
+  id                    String           @id @default(uuid()) @db.Uuid
+
+  organizationId        String           @db.Uuid
+
+  email                 String
+
+  role                  OrganizationMemberRole @default(MEMBER)
+
+  tokenHash             String           @unique
+
+  status                InvitationStatus @default(PENDING)
+
+  expiresAt             DateTime
+
+  acceptedAt            DateTime?
+
+  createdById            String           @db.Uuid
+
+  createdAt              DateTime         @default(now())
+
+  organization          Organization     @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  createdBy              User             @relation("InvitationCreator", fields: [createdById], references: [id] )
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+model ApiKey {
+  id                    String       @id @default(uuid()) @db.Uuid
+
+  organizationId        String       @db.Uuid
+  createdById           String       @db.Uuid
+
+  name                  String
+
+  keyHash               String       @unique
+
+  lastUsedAt             DateTime?
+  expiresAt              DateTime?
+  revokedAt              DateTime?
+
+  createdAt              DateTime     @default(now())
+
+  organization           Organization @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  createdBy              User         @relation("ApiKeyCreator", fields: [createdById], references: [id] )
+
+  @@index([organizationId])
+  @@index([revokedAt])
+  @@map("api_keys")
+}
+
+// ============================================================
+// AUDIT LOGS
+// ============================================================
+
+model AuditLog {
+  id                    String       @id @default(uuid()) @db.Uuid
+
+  organizationId        String       @db.Uuid
+
+  userId                String?      @db.Uuid
+
+  action                AuditAction
+
+  resourceType          String?
+  resourceId            String?
+
+  metadata              Json?
+
+  ipAddress             String?
+
+  userAgent             String?
+
+  createdAt             DateTime     @default(now())
+
+  organization          Organization @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  user                  User?        @relation( fields: [userId], references: [id] )
+
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// INTEGRATIONS
+// ============================================================
+
+model Integration {
+  id                    String              @id @default(uuid()) @db.Uuid
+
+  organizationId        String              @db.Uuid
+
+  provider              IntegrationProvider
+
+  status                IntegrationStatus   @default(PENDING)
+
+  externalAccountId     String?
+
+  credentialsEncrypted  String?
+
+  metadata              Json?
+
+  lastSyncedAt          DateTime?
+  lastError             String?
+
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  organization          Organization       @relation( fields: [organizationId], references: [id], onDelete: Cascade )
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@index([status])
+  @@map("integrations")
+}
