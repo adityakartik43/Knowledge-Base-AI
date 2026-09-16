@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.auth import verify_service_api_key
 from app.config import get_settings
 from app.db.setup import ensure_pgvector_setup
 from app.embeddings.service import get_embedding_service
@@ -13,7 +14,6 @@ from app.models.schemas import (
     ChatResponse,
     EmbedRequest,
     EmbedResponse,
-    ProcessDocumentRequest,
     ProcessDocumentResponse,
     RetrieveRequest,
     RetrieveResponse,
@@ -48,7 +48,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/process-document", response_model=ProcessDocumentResponse)
+@app.post(
+    "/process-document",
+    response_model=ProcessDocumentResponse,
+    dependencies=[Depends(verify_service_api_key)],
+)
 async def process_document(
     document_id: str = Form(...),
     document_version_id: str = Form(...),
@@ -75,31 +79,11 @@ async def process_document(
         raise HTTPException(status_code=500, detail="Document processing failed") from exc
 
 
-@app.post("/process-document/path", response_model=ProcessDocumentResponse)
-def process_document_from_path(
-    payload: ProcessDocumentRequest,
-) -> ProcessDocumentResponse:
-    if not payload.file_path:
-        raise HTTPException(status_code=400, detail="file_path is required")
-
-    processor = DocumentProcessor()
-
-    try:
-        return processor.process_pdf_file(
-            file_path=payload.file_path,
-            document_id=payload.document_id,
-            document_version_id=payload.document_version_id,
-            organization_id=payload.organization_id,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="Document processing failed") from exc
-
-
-@app.post("/embed", response_model=EmbedResponse)
+@app.post(
+    "/embed",
+    response_model=EmbedResponse,
+    dependencies=[Depends(verify_service_api_key)],
+)
 def embed_texts(payload: EmbedRequest) -> EmbedResponse:
     service = get_embedding_service()
 
@@ -118,7 +102,11 @@ def embed_texts(payload: EmbedRequest) -> EmbedResponse:
         raise HTTPException(status_code=500, detail="Embedding generation failed") from exc
 
 
-@app.post("/retrieve", response_model=RetrieveResponse)
+@app.post(
+    "/retrieve",
+    response_model=RetrieveResponse,
+    dependencies=[Depends(verify_service_api_key)],
+)
 def retrieve_chunks(payload: RetrieveRequest) -> RetrieveResponse:
     service = RetrievalService()
     embedding_service = get_embedding_service()
@@ -142,7 +130,11 @@ def retrieve_chunks(payload: RetrieveRequest) -> RetrieveResponse:
         raise HTTPException(status_code=500, detail="Retrieval failed") from exc
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post(
+    "/chat",
+    response_model=ChatResponse,
+    dependencies=[Depends(verify_service_api_key)],
+)
 def chat(payload: ChatRequest) -> ChatResponse:
     pipeline = RagPipeline()
 

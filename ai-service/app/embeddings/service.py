@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 
 from openai import OpenAI
@@ -8,10 +9,20 @@ from app.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _normalize_embedding(embedding: list[float]) -> list[float]:
+    magnitude = math.sqrt(sum(value * value for value in embedding))
+    if magnitude == 0:
+        return embedding
+    return [value / magnitude for value in embedding]
+
+
 class EmbeddingService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.client = OpenAI(api_key=self.settings.openai_api_key)
+        self.client = OpenAI(
+            api_key=self.settings.gemini_api_key,
+            base_url=self.settings.gemini_base_url,
+        )
         self._verified_dimension: int | None = None
 
     def verify_dimension(self) -> int:
@@ -32,16 +43,45 @@ class EmbeddingService:
         logger.info("[EMBEDDING] Verified embedding dimension: %s", actual)
         return actual
 
+    def _post_process_embedding(self, embedding: list[float]) -> list[float]:
+        if len(embedding) != self.settings.embedding_dimension:
+            raise ValueError(
+                f"Embedding dimension {len(embedding)} does not match "
+                f"configured dimension {self.settings.embedding_dimension}"
+            )
+
+        if self.settings.embedding_dimension < 3072:
+            return _normalize_embedding(embedding)
+
+        return embedding
+
     def create_embeddings(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
 
-        response = self.client.embeddings.create(
-            model=self.settings.openai_embedding_model,
-            input=texts,
-        )
+        batch_size = self.settings.embedding_batch_size
+        embeddings: list[list[float]] = []
 
-        embeddings = [item.embedding for item in response.data]
+        for start in range(0, len(texts), batch_size):
+            batch = texts[start : start + batch_size]
+            response = self.client.embeddings.create(
+                model=self.settings.gemini_embedding_model,
+                input=batch,
+                dimensions=self.settings.embedding_dimension,
+            )
+
+            batch_embeddings = [item.embedding for item in response.data]
+            if len(batch_embeddings) != len(batch):
+                raise ValueError(
+                    "Embedding provider returned a different number of vectors "
+                    "than requested"
+                )
+
+            embeddings.extend(
+                self._post_process_embedding(embedding)
+                for embedding in batch_embeddings
+            )
+
         logger.info("[EMBEDDING] Generated %s embeddings", len(embeddings))
         return embeddings
 
@@ -50,7 +90,7 @@ class EmbeddingService:
 
     @property
     def model_name(self) -> str:
-        return self.settings.openai_embedding_model
+        return self.settings.gemini_embedding_model
 
     @property
     def embedding_version(self) -> str:

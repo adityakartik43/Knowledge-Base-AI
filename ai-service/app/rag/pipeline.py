@@ -1,6 +1,5 @@
-from openai import OpenAI
-
 from app.config import get_settings
+from app.llm.service import LlmService
 from app.logging_config import get_logger
 from app.models.schemas import ChatMessage, ChatResponse, Citation, RetrievedChunk
 from app.retrieval.search import RetrievalService
@@ -21,10 +20,14 @@ Rules:
 
 
 class RagPipeline:
-    def __init__(self, retrieval_service: RetrievalService | None = None) -> None:
+    def __init__(
+        self,
+        retrieval_service: RetrievalService | None = None,
+        llm_service: LlmService | None = None,
+    ) -> None:
         self.settings = get_settings()
         self.retrieval_service = retrieval_service or RetrievalService()
-        self.client = OpenAI(api_key=self.settings.openai_api_key)
+        self.llm_service = llm_service or LlmService()
 
     def build_context(self, chunks: list[RetrievedChunk]) -> str:
         if not chunks:
@@ -74,15 +77,7 @@ class RagPipeline:
             }
         )
 
-        response = self.client.chat.completions.create(
-            model=self.settings.openai_chat_model,
-            messages=messages,
-            temperature=0.2,
-        )
-
-        answer = response.choices[0].message.content or ""
-        logger.info("[RAG] Generated answer (%s chars)", len(answer))
-        return answer.strip()
+        return self.llm_service.generate_chat_completion(messages=messages, temperature=0.2)
 
     def chat(
         self,
@@ -121,5 +116,5 @@ class RagPipeline:
         return ChatResponse(
             answer=answer,
             citations=citations,
-            model=self.settings.openai_chat_model,
+            model=self.llm_service.model_name,
         )

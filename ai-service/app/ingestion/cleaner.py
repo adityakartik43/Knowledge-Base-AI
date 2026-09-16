@@ -18,8 +18,13 @@ def clean_page_text(text: str) -> str:
 
 
 def clean_pages(pages: list[PageText]) -> list[PageText]:
-    return [
-        PageText(page_number=page.page_number, text=clean_page_text(page.text))
-        for page in pages
-        if clean_page_text(page.text)
-    ]
+    cleaned_pages: list[PageText] = []
+
+    for page in pages:
+        cleaned_text = clean_page_text(page.text)
+        if cleaned_text:
+            cleaned_pages.append(
+                PageText(page_number=page.page_number, text=cleaned_text)
+            )
+
+    return cleaned_pages

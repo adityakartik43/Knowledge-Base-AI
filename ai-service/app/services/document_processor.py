@@ -1,8 +1,10 @@
+import asyncio
 import tempfile
 from pathlib import Path
 
 from fastapi import UploadFile
 
+from app.config import get_settings
 from app.db.chunks import ChunkRepository
 from app.embeddings.service import EmbeddingService, get_embedding_service
 from app.ingestion.chunker import chunk_pages
@@ -13,6 +15,8 @@ from app.models.schemas import ProcessDocumentResponse
 
 logger = get_logger(__name__)
 
+_UPLOAD_CHUNK_SIZE = 1024 * 1024
+
 
 class DocumentProcessor:
     def __init__(
@@ -22,6 +26,7 @@ class DocumentProcessor:
     ) -> None:
         self.embedding_service = embedding_service or get_embedding_service()
         self.chunk_repository = chunk_repository or ChunkRepository()
+        self.settings = get_settings()
 
     def process_pdf_file(
         self,
@@ -58,8 +63,7 @@ class DocumentProcessor:
             texts = [chunk.content for chunk in chunks]
             embeddings = self.embedding_service.create_embeddings(texts)
 
-            self.chunk_repository.delete_chunks_for_version(document_version_id)
-            self.chunk_repository.insert_chunks(
+            self.chunk_repository.replace_chunks_for_version(
                 document_version_id=document_version_id,
                 chunks=chunks,
                 embeddings=embeddings,
@@ -107,18 +111,33 @@ class DocumentProcessor:
         organization_id: str,
     ) -> ProcessDocumentResponse:
         suffix = Path(upload.filename or "document.pdf").suffix or ".pdf"
+        max_upload_bytes = self.settings.max_upload_bytes
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            contents = await upload.read()
-            tmp.write(contents)
+            total_bytes = 0
+
+            while True:
+                chunk = await upload.read(_UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+
+                total_bytes += len(chunk)
+                if total_bytes > max_upload_bytes:
+                    raise ValueError(
+                        f"Upload exceeds maximum size of {max_upload_bytes} bytes"
+                    )
+
+                tmp.write(chunk)
+
             tmp_path = tmp.name
 
         try:
-            return self.process_pdf_file(
-                file_path=tmp_path,
-                document_id=document_id,
-                document_version_id=document_version_id,
-                organization_id=organization_id,
+            return await asyncio.to_thread(
+                self.process_pdf_file,
+                tmp_path,
+                document_id,
+                document_version_id,
+                organization_id,
             )
         finally:
             Path(tmp_path).unlink(missing_ok=True)

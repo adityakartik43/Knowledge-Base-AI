@@ -43,4 +43,6 @@ class RetrievalService:
             document_ids=document_ids,
             query_embedding=query_embedding,
             top_k=limit,
+            embedding_model=self.embedding_service.model_name,
+            embedding_version=self.embedding_service.embedding_version,
         )

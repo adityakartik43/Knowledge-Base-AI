@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from app.logging_config import get_logger
 from app.models.schemas import PageText
@@ -18,7 +19,10 @@ def extract_pdf_pages(file_path: str | Path) -> list[PageText]:
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"Expected a PDF file, got: {path.suffix}")
 
-    reader = PdfReader(str(path))
+    try:
+        reader = PdfReader(str(path))
+    except PdfReadError as exc:
+        raise ValueError(f"Invalid or corrupted PDF: {exc}") from exc
 
     if reader.is_encrypted:
         raise ValueError("Encrypted PDFs are not supported in V1")

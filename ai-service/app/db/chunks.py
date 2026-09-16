@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from app.config import get_settings
 from app.db.connection import get_connection
@@ -65,19 +65,7 @@ class ChunkRepository:
                     )
             conn.commit()
 
-    def delete_chunks_for_version(self, document_version_id: str) -> None:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    DELETE FROM document_chunks
-                    WHERE "documentVersionId" = %s::uuid
-                    """,
-                    (document_version_id,),
-                )
-            conn.commit()
-
-    def insert_chunks(
+    def replace_chunks_for_version(
         self,
         document_version_id: str,
         chunks: list[TextChunk],
@@ -92,6 +80,30 @@ class ChunkRepository:
 
         with get_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM message_citations mc
+                    JOIN document_chunks dc ON dc.id = mc."documentChunkId"
+                    WHERE dc."documentVersionId" = %s::uuid
+                    LIMIT 1
+                    """,
+                    (document_version_id,),
+                )
+                if cur.fetchone() is not None:
+                    raise ValueError(
+                        "Cannot reprocess a document version that has chat citations. "
+                        "Upload a new version instead."
+                    )
+
+                cur.execute(
+                    """
+                    DELETE FROM document_chunks
+                    WHERE "documentVersionId" = %s::uuid
+                    """,
+                    (document_version_id,),
+                )
+
                 for chunk, embedding in zip(chunks, embeddings):
                     if len(embedding) != settings.embedding_dimension:
                         raise ValueError(
@@ -140,6 +152,7 @@ class ChunkRepository:
                             embedding_version,
                         ),
                     )
+
             conn.commit()
 
         logger.info("[DATABASE] Stored %s chunks", len(chunks))
@@ -151,6 +164,8 @@ class ChunkRepository:
         document_ids: list[str],
         query_embedding: list[float],
         top_k: int,
+        embedding_model: str,
+        embedding_version: str,
     ) -> list[RetrievedChunk]:
         settings = get_settings()
 
@@ -180,7 +195,11 @@ class ChunkRepository:
                         ON dv."documentId" = d.id
                     WHERE d."organizationId" = %s::uuid
                       AND d.id = ANY(%s::uuid[])
+                      AND dv.id = d."currentVersionId"
+                      AND dv.status = 'READY'
                       AND dc.embedding IS NOT NULL
+                      AND dc."embeddingModel" = %s
+                      AND dc."embeddingVersion" = %s
                     ORDER BY dc.embedding <=> %s::vector
                     LIMIT %s
                     """,
@@ -188,6 +207,8 @@ class ChunkRepository:
                         query_embedding,
                         organization_id,
                         document_ids,
+                        embedding_model,
+                        embedding_version,
                         query_embedding,
                         top_k,
                     ),

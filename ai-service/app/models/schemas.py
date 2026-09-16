@@ -16,13 +16,6 @@ class TextChunk(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ProcessDocumentRequest(BaseModel):
-    document_id: str
-    document_version_id: str
-    organization_id: str
-    file_path: Optional[str] = None
-
-
 class ProcessDocumentResponse(BaseModel):
     document_id: str
     document_version_id: str

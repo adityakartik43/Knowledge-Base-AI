@@ -1,17 +1,10 @@
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from pypdf import PdfWriter
+from pypdf.errors import PdfReadError
 
 from app.ingestion.loader import extract_pdf_pages
-
-
-def _create_sample_pdf(path: Path, pages: list[str]) -> None:
-    writer = PdfWriter()
-    for text in pages:
-        writer.add_blank_page(width=612, height=792)
-    with path.open("wb") as file:
-        writer.write(file)
 
 
 def test_extract_pdf_pages_rejects_missing_file(tmp_path: Path) -> None:
@@ -25,3 +18,35 @@ def test_extract_pdf_pages_rejects_non_pdf(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Expected a PDF file"):
         extract_pdf_pages(file_path)
+
+
+def test_extract_pdf_pages_rejects_corrupted_pdf(tmp_path: Path) -> None:
+    file_path = tmp_path / "broken.pdf"
+    file_path.write_bytes(b"not-a-real-pdf")
+
+    with patch("app.ingestion.loader.PdfReader", side_effect=PdfReadError("bad pdf")):
+        with pytest.raises(ValueError, match="Invalid or corrupted PDF"):
+            extract_pdf_pages(file_path)
+
+
+def test_extract_pdf_pages_extracts_text(tmp_path: Path) -> None:
+    file_path = tmp_path / "sample.pdf"
+    file_path.write_bytes(b"%PDF-1.4")
+
+    page_one = MagicMock()
+    page_one.extract_text.return_value = "Page one content"
+    page_two = MagicMock()
+    page_two.extract_text.return_value = "Page two content"
+
+    reader = MagicMock()
+    reader.is_encrypted = False
+    reader.pages = [page_one, page_two]
+
+    with patch("app.ingestion.loader.PdfReader", return_value=reader):
+        pages = extract_pdf_pages(file_path)
+
+    assert len(pages) == 2
+    assert pages[0].page_number == 1
+    assert pages[0].text == "Page one content"
+    assert pages[1].page_number == 2
+    assert pages[1].text == "Page two content"
