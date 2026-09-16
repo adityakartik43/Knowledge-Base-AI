@@ -749,10 +749,22 @@ Page
 V1 embedding model:
 
 ```text
-text-embedding-3-small
+gemini-embedding-001
 ```
 
-Embedding generation happens in Python.
+Configured output dimensionality:
+
+```text
+1536
+```
+
+Stored in PostgreSQL as:
+
+```sql
+vector(1536)
+```
+
+Embedding generation happens in Python via the Gemini API (OpenAI-compatible client).
 
 Conceptually:
 
@@ -776,21 +788,15 @@ The returned embedding length determines the PostgreSQL vector dimension.
 
 ### Important
 
-Do NOT arbitrarily assume:
-
-```sql
-vector(1536)
-```
-
 The database dimension must match the actual embedding output being used.
 
-Verify the model output programmatically:
+For `gemini-embedding-001`, request `output_dimensionality=1536` and verify programmatically:
 
 ```python
-print(len(embedding))
+print(len(embedding))  # must be 1536
 ```
 
-Then configure the pgvector column accordingly.
+Then configure the pgvector column as `vector(1536)`.
 
 ---
 
@@ -948,6 +954,12 @@ User question
 ---
 
 ## 26. LLM Rules
+
+V1 chat model:
+
+```text
+gemini-2.5-flash
+```
 
 The LLM should be instructed to:
 
@@ -1483,7 +1495,7 @@ Example:
 
 ```env
 DATABASE_URL=
-OPENAI_API_KEY=
+GEMINI_API_KEY=
 AI_SERVICE_URL=
 ```
 
@@ -1704,10 +1716,18 @@ for document processing, chunking, embeddings, and RAG/AI workloads.
 Use:
 
 ```text
-text-embedding-3-small
+gemini-embedding-001
 ```
 
-as the initial embedding model.
+with `1536` output dimensions as the initial embedding model.
+
+Use:
+
+```text
+gemini-2.5-flash
+```
+
+as the initial chat model for RAG answers.
 
 ### Decision 5
 
